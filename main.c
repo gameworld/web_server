@@ -19,11 +19,14 @@ struct client{
     int fd;
     int recv_buf_len;
     char recv_buf[10240];
+    int send_buf_len;
+    char send_buf[10240];
 };
 
 
 int make_server_listen_socket(int port,int backlog);
-int process_request(int clientfd);
+int process_request(int clientfd,FD_SET *fdset);
+int accept_conect(int listenfd,FD_SET *fdset);
 
 //the client fd array,we now supported 1024 clients
 int cli_fd_array[1024];
@@ -45,6 +48,8 @@ int main(int argc,char **argv)
     int maxfd;
     FD_SET rst;
     FD_SET all;
+    FD_SET wst;
+
     FD_ZERO(&all);
     FD_ZERO(&rst);
 
@@ -53,7 +58,7 @@ int main(int argc,char **argv)
     {
         rst=all;
         int ncount;
-        if((ncount=select(&rst,&rst,&rst,&timeout))<0){
+        if((ncount=select(&rst,NULL,NULL,&timeout))<0){
             perror("select error\n");
             continue;
         }
@@ -62,8 +67,12 @@ int main(int argc,char **argv)
         int i;
         for(i=0;i<=maxfd;i++)
         {
-
-
+            // accept a connect
+        if(FD_ISSET(i,&rst)){
+            if(i==listen_fd)
+                accept_conect(listen_fd,&all);
+            process_request(i,&all);
+            }
         }
         
 
