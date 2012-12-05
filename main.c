@@ -17,12 +17,14 @@
 
 //a simple http server
 // store the client_fd and the recv buf;need send buf?
+// status 0: connected ,1:read head,2:head_read_complete,3:open_file_for_write? transfer,4:transfer
 struct client{
     int clifd;
     int readfd;     //store the open file discription for client
     int status;     //status ? finish the request?
-    int recv_buf_len;
+    int head_len;   // the current head data len
     char head[MAXBUFSIZE];   //store the head of request
+    int recv_buf_len;
     char recv_buf[MAXBUFSIZE];
     int  send_buf_len;
     char send_buf[MAXBUFSIZE];
@@ -31,6 +33,9 @@ struct client{
 
 // 读取http请求的头部
 int read_header(int clientfd);
+
+//解析http头部，主要是获取要请求的文件名,并打开它，返回打开的文件描述符
+int parse_head(int clientfd);
 
 int make_server_listen_socket(int port,int backlog);
 
@@ -159,11 +164,15 @@ int process_request(int clientfd,FD_SET *fdset)
 {
     struct client* cliptr=client_array[clietnfd];
 
+    int ret;
     if(cliptr->status==1)
-        read_header(clientfd);
-
-    if(read(
-
+       ret=read_header(clientfd);
+    if(ret==0)
+        response(clientfd,fdset);
+    //the connect has closed,clear the fd_set
+    if(ret==-2)
+        FD_CLR(clientfd,fdset)
+    
 
 
 
@@ -171,6 +180,12 @@ int process_request(int clientfd,FD_SET *fdset)
 
 int response(int clientfd,FD_SET *fdset)
 {
+    struct client * cliptr=client_array[clientfd];
+
+    //the head has_read complete
+    if(cliptr->status==2)
+
+
 
 
 
@@ -181,8 +196,56 @@ int response(int clientfd,FD_SET *fdset)
 int read_header(int clientfd)
 {
     struct client * cliptr=client_array[clientfd];
+    int nread;
+    // MAXBUFSIZE-cliptr->head_len-1 make the last char  NULL
+    nread=read(clientfd,cliptr->head_len,MAXBUFSIZE-cliptr->head_len-1);
+    if(nread<0){
+        perror("read socket %d \n",clientfd);
+        return -1;    //read error;
+    }
+    //connect close by client;
+    else  if(nread==0)
+    {
+        printf("connect closed %d \n",clientfd); 
+       free(client_array[clientfd]);
+       client_array[clientfd]=NULL;
+       return -2;  //connect close by client;
+
+
+    }
+
+
+    //now we check the head is complete ?
+    int start=cliptr->head_len-2;
+    //make the start >=0
+    if(start<0)
+        start=0;
+    int i;
+    int end=head_len+nread;
+
+    for(i=start;i<head_len+nread;++i){
+        if(i<=head_len+nread-4)
+        if(cliptr->head[i]=='\r' && cliptr->head[i+1]=='\n' cliptr->head[i+2]=='\r' cliptr->head[i+3]=='\n'){
+            //find the head;
+            break;
+        }
+    }
+    if(i<=head_len+nread-4){
+        status=2;
+        return 0;
+    }
+
+}
+
+int parse_head(int clientfd)
+{
+
+
+
+
 
 
 }
+
 
 
