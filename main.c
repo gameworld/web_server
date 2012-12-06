@@ -42,7 +42,7 @@ int read_header(int clientfd);
 //解析http头部，将头部分成argv数组
 int parse_head(int clientfd);
 //打开客户端请求的文件用于发送给客户端
-int open_filre(int clientfd);
+int open_file(int clientfd);
 
 int make_server_listen_socket(int port,int backlog);
 
