@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <pthread.h>
 
 
 #define MAXCLIENTCOUNT   1024
@@ -44,7 +45,14 @@ int parse_head(int clientfd);
 //打开客户端请求的文件用于发送给客户端
 int open_file(int clientfd);
 
+
+//发送文件函数 ，新建一个线程用于文件发送
+void *send_files(void *arg);
+
 int make_server_listen_socket(int port,int backlog);
+
+// 清空指定的客户端的数据
+int  destory(int clientfd); 
 
 int process_request(int clientfd,FD_SET *fdset);
 // accept a client,malloc the struct client memory,modify the Fd_set
@@ -108,11 +116,6 @@ int main(int argc,char **argv)
             }
         }
         
-        //check the write socket
-        for(i=3;i<=maxwritefd;i++){
-            if(FD_ISSET(i,&wst))
-                response(i,&wall);
-        }
     }
 
 
@@ -186,8 +189,6 @@ int process_request(int clientfd,FD_SET *fdset)
     }
 
 
-
-
 }
 
 int response(int clientfd,FD_SET *fdset)
@@ -195,11 +196,12 @@ int response(int clientfd,FD_SET *fdset)
     struct client * cliptr=client_array[clientfd];
 
     //the head has_read complete
-    if(cliptr->status==4)
+    if(cliptr->status!=4)
         return -1;
 
     if(cliptr->readfd<0){
         printf("bad fd for read ");
+        return -1;
 
     }
 
@@ -311,6 +313,34 @@ int open_file(int clientfd)
     cliptr->status=4;
     return 0;
 }
+
+
+int  destory(int clientfd) 
+{
+    close(clientfd);
+    free(client_array[clientfd]);
+    clien_array[clientfd]=NULL;
+
+}
+
+void *send_files(void *arg)
+{
+     int *iarg=(int *)arg;
+     int readfd=iarg[0];
+     int writefd=iarg[1];
+     char buf[1024];
+     int nread=0;
+     if(readfd>0){
+     while((nread=read(readfd,buf,sizeof(buf)))>0){
+         if(write(writefd,buf,nread)!=nread)
+             fprintf(stderr,"write error");
+             }
+     close(readfd);
+     }
+
+     destory(writefd);
+}
+
 
 
 
