@@ -308,6 +308,7 @@ int parse_head(int clientfd)
 
     i=0;
     //make a test
+    cliptr->status=3;
     while(argv[i]!=NULL){
         printf("%s",argv[i]);
         ++i;
@@ -325,6 +326,7 @@ int open_file(int clientfd)
     int fd=-1;
     if(sscanf(cliptr->header_argv[0],"GET %s HTTP/1.1",url)==1){
         char *end=strstr(url,"?");
+        if(end!=NULL)
         *end='\0';
         sprintf(pathname,"./%s",url);
         if((fd=open(pathname,O_RDONLY))<0){
