@@ -243,7 +243,7 @@ int read_header(int clientfd)
     struct client * cliptr=client_array[clientfd];
     int nread;
     // MAXBUFSIZE-cliptr->head_len-1 make the last char  NULL
-    nread=read(clientfd,cliptr->header+header_len,MAXBUFSIZE-cliptr->header_len-1);
+    nread=read(clientfd,cliptr->header+cliptr->header_len,MAXBUFSIZE-cliptr->header_len-1);
     if(nread<0){
         perror("read socket ");
         return -1;    //read error;
@@ -278,7 +278,8 @@ int read_header(int clientfd)
         }
     }
 
-    cliptr->header_len+=nread;
+    cliptr->header_len =cliptr->header_len + nread;
+    i++;
     return 0;
 }
 
