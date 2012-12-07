@@ -27,9 +27,9 @@ struct client{
     int readfd;     //store the open file discription for client
     int status;     //status ? finish the request?
     int httpstatus;
-    int head_len;   // the current head data len
+    int header_len;   // the current head data len
     char header[MAXBUFSIZE];   //store the head of request
-    char * header_argv[HEADMAXLINE];   //parse the header,store the pointer in header
+    char * header_argv[MAXHEADLINE];   //parse the header,store the pointer in header
     int  recv_buf_len;
     char recv_buf[MAXBUFSIZE];
     int  send_buf_len;
@@ -52,16 +52,16 @@ void *send_files(void *arg);
 int make_server_listen_socket(int port,int backlog);
 
 // 清空指定的客户端的数据
-int  destory(int clientfd); 
+int  destroy(int clientfd); 
 
-int process_request(int clientfd,FD_SET *fdset);
+int  process_request(int clientfd,fd_set  *fdset);
 // accept a client,malloc the struct client memory,modify the Fd_set
-int accept_conect(int listenfd,FD_SET *fdset);
+int  accept_conect(int listenfd,fd_set  *fdset);
 //read file ,wirte to the clientfd
-int response(int clientfd,FD_SET *fdset);
+int response(int clientfd,fd_set  *fdset);
 
 //向客户端回复 的头部信息,写入http流,argc 要写入头部的参数个数，argc 参数的内容
-int sendheader(int clientfd,int argc,char **argv);
+int  sendheader(int clientfd,int argc,char **argv);
 
 //the client fd array,we now supported 1024 clients
 int cli_fd_array[1024];
@@ -73,7 +73,7 @@ int maxwritefd;
 
 int main(int argc,char **argv)
 {
-    int listenfd;
+    int listen_fd;
     if((listen_fd=make_server_listen_socket(8080,5))<0){
         fprintf(stderr,"make_server_listen socket error");
         exit(-1);
@@ -81,23 +81,24 @@ int main(int argc,char **argv)
 
     //save the maxfd;
     struct timeval timeout;
-    timeout.tv_sec=2;
+    timeout.tv_sec=3;
     timeout.tv_usec=0;
-    FD_SET rst;
-    FD_SET rall;
-    FD_SET wst;
-    FD_SET wall;
+    fd_set rst;
+    fd_set rall;
+    fd_set wst;
+    fd_set wall;
 
     FD_ZERO(&rall);
     FD_ZERO(&wall);
 
-    FD_SET(listen_fd,&all);
+    FD_SET(listen_fd,&rall);
+    maxreadfd=listen_fd;
     while(1)
     {
-        rst=all;
-        wst=wall;
+        rst=rall;
+        //wst=wall;
         int ncount;
-        if((ncount=select(&rst,&wst,NULL,&timeout))<0){
+        if((ncount=select(maxreadfd+1,&rst,NULL,NULL,&timeout))<0){
             perror("select error\n");
             continue;
         }
@@ -111,7 +112,7 @@ int main(int argc,char **argv)
         if(FD_ISSET(i,&rst)){
             if(i==listen_fd)
                 accept_conect(listen_fd,&rall);
-            else 
+            else
                process_request(i,&rall);
             }
         }
@@ -132,6 +133,11 @@ int make_server_listen_socket(int port,int backlog)
         return -1;
     }
 
+    int err;
+    if(setsockopt(listen_fd,SOL_SOCKET,SO_REUSEADDR,&err,sizeof(int))<0){
+        perror("set socket option error\n");
+    }
+
 
     bzero(&serveraddr,sizeof(serveraddr));
     serveraddr.sin_family=AF_INET;
@@ -142,6 +148,7 @@ int make_server_listen_socket(int port,int backlog)
         return -2;
     }
 
+
     if(listen(listen_fd,backlog)<0){
         perror("listen error\n");
         return -3;
@@ -149,14 +156,16 @@ int make_server_listen_socket(int port,int backlog)
 
     return listen_fd;
 }
-int accept_conect(int listenfd,FD_SET *fdset)
+int accept_conect(int listenfd,fd_set  *fdset)
 {
     int clientfd;
-    clientfd=accept(listenfd);
-    if(clienfd<0){
+    clientfd=accept(listenfd,NULL,0);
+    if(clientfd<0){
         perror("accept error\n");
         return -1;
     }
+
+    printf("accept %d \n",clientfd);
 
     //add the socket in readset;
     FD_SET(clientfd,fdset);
@@ -165,6 +174,7 @@ int accept_conect(int listenfd,FD_SET *fdset)
     client_array[clientfd]->readfd=-1;
     client_array[clientfd]->recv_buf_len=0;
     client_array[clientfd]->send_buf_len=0;
+    client_array[clientfd]->status=1;
     
     //change the maxfd;
     if(clientfd>maxreadfd)
@@ -173,54 +183,69 @@ int accept_conect(int listenfd,FD_SET *fdset)
     return clientfd;
 }
 
-int process_request(int clientfd,FD_SET *fdset)
+int process_request(int clientfd,fd_set *fdset)
 {
-    struct client* cliptr=client_array[clietnfd];
+    printf("process request");
+    struct client* cliptr=client_array[clientfd];
 
     int ret;
     switch(cliptr->status)
     {
         case 1:ret=read_header(clientfd);
-               if(ret==0)
-                   response(clientfd,fdset);
+               //if(ret==0)
+                  // response(clientfd,fdset);
                if(ret==-2)
                    FD_CLR(clientfd,fdset);
+               break;
+        case 2:response(clientfd,fdset);
+               break;
 
     }
 
 
+
 }
 
-int response(int clientfd,FD_SET *fdset)
+int response(int clientfd,fd_set *fdset)
 {
     struct client * cliptr=client_array[clientfd];
 
-    //the head has_read complete
-    if(cliptr->status!=4)
-        return -1;
 
-    if(cliptr->readfd<0){
-        printf("bad fd for read ");
-        return -1;
+    parse_head(clientfd);
+    open_file(clientfd);
 
+    int err;
+    pthread_t ntid;
+    pthread_attr_t attr;
+    
+    err=pthread_attr_init(&attr);
+    if(err!=0){
+        perror("pthread_attr_init error\n");
+        return -1;
     }
 
-
-
-
-
-
-
+    //创建一个线程发送文件
+    err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
+    int arr[2];
+    arr[0]=cliptr->readfd;
+    arr[1]=clientfd;
+    if(err==0)
+        err=pthread_create(&ntid,NULL,send_files,arr);
+    pthread_attr_destroy(&attr);
+    return (err);
 }
+
+
 
 int read_header(int clientfd)
 {
+    printf("read header\n");
     struct client * cliptr=client_array[clientfd];
     int nread;
     // MAXBUFSIZE-cliptr->head_len-1 make the last char  NULL
-    nread=read(clientfd,cliptr->head_len,MAXBUFSIZE-cliptr->head_len-1);
+    nread=read(clientfd,cliptr->header+header_len,MAXBUFSIZE-cliptr->header_len-1);
     if(nread<0){
-        perror("read socket %d \n",clientfd);
+        perror("read socket ");
         return -1;    //read error;
     }
     //connect close by client;
@@ -235,37 +260,40 @@ int read_header(int clientfd)
     }
 
     //now we check the head is complete ?
-    int start=cliptr->head_len-2;
+    int start=cliptr->header_len-2;
     //make the start >=0
     if(start<0)
         start=0;
     int i;
-    int end=cliptr->head_len+nread;
+    int end=cliptr->header_len+nread;
 
-    for(i=start;i<head_len+nread;++i){
-        if(i<=head_len+nread-4)
-        if(cliptr->head[i]=='\r' && cliptr->head[i+1]=='\n' cliptr->head[i+2]=='\r' cliptr->head[i+3]=='\n'){
+    for(i=start;i<cliptr->header_len+nread;++i){
+        if(i<=cliptr->header_len+nread-4)
+        if(cliptr->header[i]=='\r' && cliptr->header[i+1]=='\n' && cliptr->header[i+2]=='\r' && cliptr->header[i+3]=='\n'){
             //find the head;
             cliptr->status=2;
-            cliptr->head_len=i+4;
-            break;
+            cliptr->header_len=i+4;
+            return 0;
+            
         }
     }
 
+    cliptr->header_len+=nread;
     return 0;
 }
 
 int parse_head(int clientfd)
 {
+    printf("parse_header\n");
     struct client  * cliptr=client_array[clientfd];
     if(cliptr->status!=2)
         return -1;
 
     char url[MAXBUFSIZE];
     char filename[MAXPATHNAME];
-    head[MAXBUFSIZE-1]='\0';
+    cliptr->header[MAXBUFSIZE-1]='\0';
     char *tempstr=cliptr->header;
-    char *argv=cliptr->header_argv;
+    char **argv=cliptr->header_argv;
     char *p;
     int i=0;
 
@@ -294,10 +322,10 @@ int open_file(int clientfd)
     char url[MAXPATHNAME];
     char pathname[MAXPATHNAME]; 
     int fd=-1;
-    if(sscanf(argv[0],"GET %s HTTP/1.1",url)==1){
+    if(sscanf(cliptr->header_argv[0],"GET %s HTTP/1.1",url)==1){
         char *end=strstr(url,"?");
         *end='\0';
-        snprintf(pathname,"./%s",url);
+        sprintf(pathname,"./%s",url);
         if((fd=open(pathname,O_RDONLY))<0){
             fprintf(stderr,"open file %s error ",pathname);
             perror("");
@@ -315,11 +343,11 @@ int open_file(int clientfd)
 }
 
 
-int  destory(int clientfd) 
+int  destroy(int clientfd) 
 {
     close(clientfd);
     free(client_array[clientfd]);
-    clien_array[clientfd]=NULL;
+    client_array[clientfd]=NULL;
 
 }
 
@@ -338,7 +366,7 @@ void *send_files(void *arg)
      close(readfd);
      }
 
-     destory(writefd);
+     destroy(writefd);
 }
 
 
