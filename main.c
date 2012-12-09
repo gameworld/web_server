@@ -6,7 +6,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <time.h>
-#include <strings.h>
+#include <string.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/select.h>
@@ -192,8 +192,8 @@ int process_request(int clientfd,fd_set *fdset)
     switch(cliptr->status)
     {
         case 1:ret=read_header(clientfd);
-               //if(ret==0)
-                  // response(clientfd,fdset);
+               if(ret==0)
+                   response(clientfd,fdset);
                if(ret==-2)
                    FD_CLR(clientfd,fdset);
                break;
@@ -209,6 +209,7 @@ int process_request(int clientfd,fd_set *fdset)
 int response(int clientfd,fd_set *fdset)
 {
     struct client * cliptr=client_array[clientfd];
+    FD_CLR(clientfd,fdset);
 
 
     parse_head(clientfd);
@@ -226,9 +227,10 @@ int response(int clientfd,fd_set *fdset)
 
     //创建一个线程发送文件
     err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
-    int arr[2];
+    int arr[3];
     arr[0]=cliptr->readfd;
     arr[1]=clientfd;
+    arr[2]=(int *)fdset;
     if(err==0)
         err=pthread_create(&ntid,NULL,send_files,arr);
     pthread_attr_destroy(&attr);
@@ -280,7 +282,7 @@ int read_header(int clientfd)
 
     cliptr->header_len =cliptr->header_len + nread;
     i++;
-    return 0;
+    return 1;
 }
 
 int parse_head(int clientfd)
@@ -328,7 +330,10 @@ int open_file(int clientfd)
         char *end=strstr(url,"?");
         if(end!=NULL)
         *end='\0';
-        sprintf(pathname,"./%s",url);
+        if(strcmp(url,"/")==0)
+            sprintf(pathname,"./index.html");
+        else
+            sprintf(pathname,"./%s",url);
         if((fd=open(pathname,O_RDONLY))<0){
             fprintf(stderr,"open file %s error ",pathname);
             perror("");
@@ -359,6 +364,7 @@ void *send_files(void *arg)
      int *iarg=(int *)arg;
      int readfd=iarg[0];
      int writefd=iarg[1];
+     fd_set *rall=(fd_set *) iarg[3];
      char buf[1024];
      int nread=0;
      if(readfd>0){
