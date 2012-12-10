@@ -366,17 +366,30 @@ int  destroy(int clientfd)
 void *send_files(void *arg)
 {
      long *iarg=(long *)arg;
+     struct stat statinfo;
+     char buf[1024];
      int readfd=iarg[0];
      int clientfd=iarg[1];
 
      struct client * cliptr=client_array[clientfd];
+
+
+
+     if(readfd>0){
+         if(fstat(readfd,&statinfo)==0){
+             snprintf(buf,1024,"Date:%s",ctime(& statinfo.st_mtime));
+             add_header(clientfd,buf);
+             snprintf(buf,1024,"ContentLength:%lu",statinfo.st_size);
+             add_header(clientfd,buf);
+         }
+     }
+     
+
      add_header(clientfd,"ContentType:text/html");
-     add_header(clientfd,"Date:2012");
      end_header(clientfd);
 
      if(write(clientfd,cliptr->send_buf,cliptr->send_buf_len)!=cliptr->send_buf_len)
          perror("send header error");
-     char buf[1024];
      int nread=0;
      if(readfd>0){
      while((nread=read(readfd,buf,sizeof(buf)))>0){
