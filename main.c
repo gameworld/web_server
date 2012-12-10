@@ -45,8 +45,12 @@ int parse_head(int clientfd);
 //打开客户端请求的文件用于发送给客户端
 int open_file(int clientfd);
 
+//添加一个头部信息,及向写入的头部缓存写一行键值对 
+int add_header(int clientfd,char *item);
 
-//发送文件函数 ，新建一个线程用于文件发送
+int end_header(int clientfd);
+
+//发送文件函数 ，新建一个线程用于文件发送,
 void *send_files(void *arg);
 
 int make_server_listen_socket(int port,int backlog);
@@ -60,7 +64,7 @@ int  accept_conect(int listenfd,fd_set  *fdset);
 //read file ,wirte to the clientfd
 int response(int clientfd,fd_set  *fdset);
 
-//向客户端回复 的头部信息,写入http流,argc 要写入头部的参数个数，argc 参数的内容
+//向客户端回复 的头部信息
 int  sendheader(int clientfd,int argc,char **argv);
 
 //the client fd array,we now supported 1024 clients
@@ -227,10 +231,10 @@ int response(int clientfd,fd_set *fdset)
 
     //创建一个线程发送文件
     err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
-    int arr[3];
+    long arr[3];
     arr[0]=cliptr->readfd;
     arr[1]=clientfd;
-    arr[2]=(int *)fdset;
+    arr[2]=( long )fdset;
     if(err==0)
         err=pthread_create(&ntid,NULL,send_files,arr);
     pthread_attr_destroy(&attr);
@@ -361,26 +365,73 @@ int  destroy(int clientfd)
 
 void *send_files(void *arg)
 {
-     int *iarg=(int *)arg;
+     long *iarg=(long *)arg;
      int readfd=iarg[0];
-     int writefd=iarg[1];
-     fd_set *rall=(fd_set *) iarg[3];
+     int clientfd=iarg[1];
+
+     struct client * cliptr=client_array[clientfd];
+     add_header(clientfd,"ContentType:text/html");
+     add_header(clientfd,"Date:2012");
+     end_header(clientfd);
+
+     if(write(clientfd,cliptr->send_buf,cliptr->send_buf_len)!=cliptr->send_buf_len)
+         perror("send header error");
      char buf[1024];
      int nread=0;
      if(readfd>0){
      while((nread=read(readfd,buf,sizeof(buf)))>0){
-         if(write(writefd,buf,nread)!=nread)
+         if(write(clientfd,buf,nread)!=nread)
              fprintf(stderr,"write error");
              }
      close(readfd);
      }
 
-     destroy(writefd);
+     destroy(clientfd);
 }
 
+/*
+int  sendheader(int clientfd,int argc,char **argv)
+{
+    char buf[1024];
+    struct client * cliptr=client_array[clientfd];
+    int i=0;
+    int size=0;
+   // int nremain=MAXBUFSIZE;
+    while(i<argc){
+        cliptr->send_buf_len += snprintf(buf,"%s\r\n",argv[i],);
+        strncat(cliptr->send_buf,buf,MAXBUFSIZE);
+    }
+    //;strncat(cliptr->send_buf,"\r\n");
+    //if(write(clientfd,cliptr->send_buf,cliptr->send_buf_len)!=cliptr->send_buf_len){
+    //    perror("write error\n");
+    //    return -1;
+   // }
+    return 0;
+}
+*/
 
+int add_header(int clientfd,char *item)
+{
 
+    struct client * cliptr=client_array[clientfd];
+    //char buf[1024];
 
+    int strl=strlen(item);
+    // 剩余的5个字节用于存放 \r\n\r\n\0;
+    if(cliptr->send_buf_len+strl+5<=MAXBUFSIZE){
+    strcat(cliptr->send_buf,item);
+    strcat(cliptr->send_buf,"\r\n");
+    cliptr->send_buf_len+=strl+2;
+    }
 
+}
 
+int end_header(int clientfd)
+{
+    struct client *cliptr=client_array[clientfd];
+
+    cliptr->send_buf_len+=2;
+    strcat(cliptr->send_buf,"\r\n");
+
+}
 
