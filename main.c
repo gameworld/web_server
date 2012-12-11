@@ -19,6 +19,7 @@
 #define MAXBUFSIZE   10240
 #define MAXPATHNAME  1024
 #define MAXHEADLINE  20
+  
 
 
 //a simple http server
@@ -38,6 +39,7 @@ struct client{
     char send_buf[MAXBUFSIZE];
 };
 
+char *workdir="/usr/docs/llvm/html/";
 
 // 读取http请求的头部
 int read_header(int clientfd);
@@ -351,9 +353,9 @@ int open_file(int clientfd)
         if(end!=NULL)
         *end='\0';
         if(strcmp(url,"/")==0)
-            sprintf(pathname,"/usr/docs/llvm/html/index.html");
+            sprintf(pathname,"%sindex.html",workdir);
         else
-            sprintf(pathname,"/usr/docs/llvm/html/%s",url);
+            sprintf(pathname,"%s%s",workdir,url);
         if((fd=open(pathname,O_RDONLY))<0){
             fprintf(stderr,"open file %s error ",pathname);
             perror("");
