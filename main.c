@@ -20,6 +20,7 @@
 #define MAXPATHNAME  1024
 #define MAXHEADLINE  20
 
+
 //a simple http server
 // store the client_fd and the recv buf;need send buf?
 // status 0: connected ,1:read head,2:head_read_complete,3:parse head ,4:open_file_for_write? transfer,5:transfer
@@ -198,7 +199,7 @@ int accept_conect(int listenfd,fd_set  *fdset)
 
 int process_request(int clientfd,fd_set *fdset)
 {
-    printf("process request");
+    printf("process request\n");
     struct client* cliptr=client_array[clientfd];
 
     int ret;
@@ -239,6 +240,8 @@ int response(int clientfd,fd_set *fdset)
     }
 
     //创建一个线程发送文件
+    //
+    //设置这个线程的属性为分离线程
     err=pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
     long arr[3];
     arr[0]=cliptr->readfd;
@@ -305,6 +308,9 @@ int parse_head(int clientfd)
     if(cliptr->status!=2)
         return -1;
 
+
+   // printf("%s",cliptr->header);
+
     char url[MAXBUFSIZE];
     char filename[MAXPATHNAME];
     cliptr->header[MAXBUFSIZE-1]='\0';
@@ -316,6 +322,7 @@ int parse_head(int clientfd)
     while((p=strstr(tempstr,"\r\n"))!=NULL  && i<MAXHEADLINE){
         *p='\0';
         argv[i]=tempstr;
+        tempstr=p;
         tempstr+=2;
         i++;
     }
@@ -325,7 +332,7 @@ int parse_head(int clientfd)
     //make a test
     cliptr->status=3;
     while(argv[i]!=NULL){
-        printf("%s",argv[i]);
+         printf("%s\n",argv[i]);
         ++i;
     }
 }
@@ -344,9 +351,9 @@ int open_file(int clientfd)
         if(end!=NULL)
         *end='\0';
         if(strcmp(url,"/")==0)
-            sprintf(pathname,"./index.html");
+            sprintf(pathname,"/usr/docs/llvm/html/index.html");
         else
-            sprintf(pathname,"./%s",url);
+            sprintf(pathname,"/usr/docs/llvm/html/%s",url);
         if((fd=open(pathname,O_RDONLY))<0){
             fprintf(stderr,"open file %s error ",pathname);
             perror("");
@@ -388,18 +395,21 @@ void *send_files(void *arg)
      
     switch(cliptr->httpstatus){
         case 200: strcpy(str,"OK");break;
-        case 400: strcpy(str,"NOT FOUND");break;
+        case 404: strcpy(str,"NOT FOUND");break;
         default: strcpy(str,"UNKNOWN");
     }
      
      sprintf(buf,"HTTP/1.1 %d %s",cliptr->httpstatus,str);
      add_header(clientfd,buf);
+     int printsize;
 
      if(readfd>0){
          if(fstat(readfd,&statinfo)==0){
              time_t mtime;
              time(&mtime);
-             snprintf(buf,1024,"Date:%s GMT",asctime(gmtime(&mtime)));
+             printsize=sprintf(str,"Date: %s",asctime(gmtime(&mtime)));
+             str[printsize-1]='\0';
+             snprintf(buf,1024,"%s GMT",str);
              add_header(clientfd,buf);
              add_header(clientfd,"Server:tlw/0.1");
              add_header(clientfd,"Cache-Control:no-cache");
