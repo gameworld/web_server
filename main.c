@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <time.h>
@@ -99,15 +100,22 @@ int main(int argc,char **argv)
     maxreadfd=listen_fd;
     while(1)
     {
+        timeout.tv_sec=5;
+        timeout.tv_usec=0;
         rst=rall;
         //wst=wall;
         int ncount;
-        if((ncount=select(maxreadfd+1,&rst,NULL,NULL,&timeout))<0){
+        //注意:每次select后 timeout结构体都必须重写
+        if((ncount=select(maxreadfd+1,&rst,NULL,NULL,NULL))<0){
             perror("select error\n");
             continue;
         }
-        if(ncount==0)
+        static int mcount=0;
+        mcount++;
+        if(ncount==0){
+            printf("%ld\n",timeout.tv_sec);
             continue;
+        }
         //check the read socket
         int i;
         for(i=3;i<=maxreadfd;i++)
@@ -179,6 +187,7 @@ int accept_conect(int listenfd,fd_set  *fdset)
     client_array[clientfd]->recv_buf_len=0;
     client_array[clientfd]->send_buf_len=0;
     client_array[clientfd]->status=1;
+    client_array[clientfd]->send_buf[0]='\0';
     
     //change the maxfd;
     if(clientfd>maxreadfd)
@@ -347,7 +356,8 @@ int open_file(int clientfd)
                 perror("");
             }
         }
-        cliptr->httpstatus=200;
+        else
+            cliptr->httpstatus=200;
     }
     cliptr->readfd=fd;
     cliptr->status=4;
@@ -368,24 +378,39 @@ void *send_files(void *arg)
      long *iarg=(long *)arg;
      struct stat statinfo;
      char buf[1024];
+     char str[32];
      int readfd=iarg[0];
      int clientfd=iarg[1];
 
      struct client * cliptr=client_array[clientfd];
 
 
+     
+    switch(cliptr->httpstatus){
+        case 200: strcpy(str,"OK");break;
+        case 400: strcpy(str,"NOT FOUND");break;
+        default: strcpy(str,"UNKNOWN");
+    }
+     
+     sprintf(buf,"HTTP/1.1 %d %s",cliptr->httpstatus,str);
+     add_header(clientfd,buf);
 
      if(readfd>0){
          if(fstat(readfd,&statinfo)==0){
-             snprintf(buf,1024,"Date:%s",ctime(& statinfo.st_mtime));
+             time_t mtime;
+             time(&mtime);
+             snprintf(buf,1024,"Date:%s GMT",asctime(gmtime(&mtime)));
              add_header(clientfd,buf);
-             snprintf(buf,1024,"ContentLength:%lu",statinfo.st_size);
+             add_header(clientfd,"Server:tlw/0.1");
+             add_header(clientfd,"Cache-Control:no-cache");
+             snprintf(buf,1024,"Content-Length:%lu",statinfo.st_size);
              add_header(clientfd,buf);
          }
      }
      
 
-     add_header(clientfd,"ContentType:text/html");
+     add_header(clientfd,"Content-Type:text/html");
+     add_header(clientfd,"Connection: close");
      end_header(clientfd);
 
      if(write(clientfd,cliptr->send_buf,cliptr->send_buf_len)!=cliptr->send_buf_len)
