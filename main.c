@@ -1,25 +1,5 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <time.h>
-#include <string.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#include <pthread.h>
 
-
-#define MAXCLIENTCOUNT   1024
-#define MAXBUFSIZE   10240
-#define MAXPATHNAME  1024
-#define MAXHEADLINE  20
-  
+#include "web_server.h"
 
 
 //a simple http server
@@ -39,7 +19,7 @@ struct client{
     char send_buf[MAXBUFSIZE];
 };
 
-char *workdir="/usr/docs/llvm/html/";
+char *workdir="/home/fighter/www/";
 
 // 读取http请求的头部
 int read_header(int clientfd);
@@ -49,7 +29,7 @@ int parse_head(int clientfd);
 //打开客户端请求的文件用于发送给客户端
 int open_file(int clientfd);
 
-//添加一个头部信息,及向写入的头部缓存写一行键值对 
+//添加一个头部信息,及向写入的头部缓存写一行键值对
 int add_header(int clientfd,char *item);
 
 int end_header(int clientfd);
@@ -60,7 +40,7 @@ void *send_files(void *arg);
 int make_server_listen_socket(int port,int backlog);
 
 // 清空指定的客户端的数据
-int  destroy(int clientfd); 
+int  destroy(int clientfd);
 
 int  process_request(int clientfd,fd_set  *fdset);
 // accept a client,malloc the struct client memory,modify the Fd_set
@@ -69,7 +49,7 @@ int  accept_conect(int listenfd,fd_set  *fdset);
 int response(int clientfd,fd_set  *fdset);
 
 //向客户端回复 的头部信息
-int  sendheader(int clientfd,int argc,char **argv);
+//int  sendheader(int clientfd,int argc,char **argv);
 
 //the client fd array,we now supported 1024 clients
 int cli_fd_array[1024];
@@ -81,11 +61,13 @@ int maxwritefd;
 
 int main(int argc,char **argv)
 {
+    setuid(0);
     int listen_fd;
     if((listen_fd=make_server_listen_socket(8080,5))<0){
         fprintf(stderr,"make_server_listen socket error");
         exit(-1);
     }
+    printf("server listen at 8080\n");
 
     //save the maxfd;
     struct timeval timeout;
@@ -93,7 +75,7 @@ int main(int argc,char **argv)
     timeout.tv_usec=0;
     fd_set rst;
     fd_set rall;
-    fd_set wst;
+    //fd_set wst;
     fd_set wall;
 
     FD_ZERO(&rall);
@@ -131,7 +113,7 @@ int main(int argc,char **argv)
                process_request(i,&rall);
             }
         }
-        
+
     }
 
 
@@ -148,10 +130,6 @@ int make_server_listen_socket(int port,int backlog)
         return -1;
     }
 
-    int err;
-    if(setsockopt(listen_fd,SOL_SOCKET,SO_REUSEADDR,&err,sizeof(int))<0){
-        perror("set socket option error\n");
-    }
 
 
     bzero(&serveraddr,sizeof(serveraddr));
@@ -162,6 +140,11 @@ int make_server_listen_socket(int port,int backlog)
         perror("bind error\n");
         return -2;
     }
+
+    int err;
+    if(setsockopt(listen_fd,SOL_SOCKET,SO_REUSEADDR,&err,sizeof(int))<0){
+         perror("set socket option error\n");
+     }
 
 
     if(listen(listen_fd,backlog)<0){
@@ -191,7 +174,7 @@ int accept_conect(int listenfd,fd_set  *fdset)
     client_array[clientfd]->send_buf_len=0;
     client_array[clientfd]->status=1;
     client_array[clientfd]->send_buf[0]='\0';
-    
+
     //change the maxfd;
     if(clientfd>maxreadfd)
         maxreadfd=clientfd;
@@ -217,8 +200,7 @@ int process_request(int clientfd,fd_set *fdset)
                break;
 
     }
-
-
+    return 0;
 
 }
 
@@ -234,7 +216,7 @@ int response(int clientfd,fd_set *fdset)
     int err;
     pthread_t ntid;
     pthread_attr_t attr;
-    
+
     err=pthread_attr_init(&attr);
     if(err!=0){
         perror("pthread_attr_init error\n");
@@ -271,7 +253,7 @@ int read_header(int clientfd)
     //connect close by client;
     else  if(nread==0)
     {
-        printf("connect closed %d \n",clientfd); 
+        printf("connect closed %d \n",clientfd);
        free(client_array[clientfd]);
        client_array[clientfd]=NULL;
        return -2;  //connect close by client;
@@ -294,7 +276,7 @@ int read_header(int clientfd)
             cliptr->status=2;
             cliptr->header_len=i+4;
             return 0;
-            
+
         }
     }
 
@@ -337,6 +319,7 @@ int parse_head(int clientfd)
          printf("%s\n",argv[i]);
         ++i;
     }
+    return 0;
 }
 
 int open_file(int clientfd)
@@ -346,7 +329,7 @@ int open_file(int clientfd)
     if(cliptr->status!=3)
         return -1;
     char url[MAXPATHNAME];
-    char pathname[MAXPATHNAME]; 
+    char pathname[MAXPATHNAME];
     int fd=-1;
     if(sscanf(cliptr->header_argv[0],"GET %s HTTP/1.1",url)==1){
         char *end=strstr(url,"?");
@@ -356,6 +339,13 @@ int open_file(int clientfd)
             sprintf(pathname,"%sindex.html",workdir);
         else
             sprintf(pathname,"%s%s",workdir,url);
+        //打开请求的文件，可能是静态网页、动态执行的脚本
+
+
+        int status;
+        fd=open_pipe_or_file(pathname,&status);
+        /*
+
         if((fd=open(pathname,O_RDONLY))<0){
             fprintf(stderr,"open file %s error ",pathname);
             perror("");
@@ -367,19 +357,22 @@ int open_file(int clientfd)
         }
         else
             cliptr->httpstatus=200;
+            */
     }
+    cliptr->httpstatus=200;
+
     cliptr->readfd=fd;
     cliptr->status=4;
     return 0;
 }
 
 
-int  destroy(int clientfd) 
+int  destroy(int clientfd)
 {
     close(clientfd);
     free(client_array[clientfd]);
     client_array[clientfd]=NULL;
-
+    return 0;
 }
 
 void *send_files(void *arg)
@@ -394,13 +387,14 @@ void *send_files(void *arg)
      struct client * cliptr=client_array[clientfd];
 
 
-     
+
     switch(cliptr->httpstatus){
         case 200: strcpy(str,"OK");break;
         case 404: strcpy(str,"NOT FOUND");break;
         default: strcpy(str,"UNKNOWN");
+        /* no break */
     }
-     
+
      sprintf(buf,"HTTP/1.1 %d %s",cliptr->httpstatus,str);
      add_header(clientfd,buf);
      int printsize;
@@ -415,11 +409,11 @@ void *send_files(void *arg)
              add_header(clientfd,buf);
              add_header(clientfd,"Server:tlw/0.1");
              add_header(clientfd,"Cache-Control:no-cache");
-             snprintf(buf,1024,"Content-Length:%lu",statinfo.st_size);
-             add_header(clientfd,buf);
+            // snprintf(buf,1024,"Content-Length:%lu",statinfo.st_size);
+             //add_header(clientfd,buf);
          }
      }
-     
+
 
      add_header(clientfd,"Content-Type:text/html");
      add_header(clientfd,"Connection: close");
@@ -437,6 +431,7 @@ void *send_files(void *arg)
      }
 
      destroy(clientfd);
+     return NULL;
 }
 
 /*
@@ -473,6 +468,7 @@ int add_header(int clientfd,char *item)
     strcat(cliptr->send_buf,"\r\n");
     cliptr->send_buf_len+=strl+2;
     }
+    return 0;
 
 }
 
@@ -482,6 +478,6 @@ int end_header(int clientfd)
 
     cliptr->send_buf_len+=2;
     strcat(cliptr->send_buf,"\r\n");
+    return 0;
 
 }
-
